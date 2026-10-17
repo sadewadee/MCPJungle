@@ -27,7 +27,7 @@ go test ./internal/e2e ./internal/api                  # API + end-to-end (dashb
 golangci-lint run          # v2 config in .golangci.yml; formatters: gci, gofmt, gofumpt, goimports
 golangci-lint run --fix
 
-./scripts/test-mcpjungle.sh            # sanity/integration script: builds bin/mcpjungle, starts servers on ports 18080-18084 plus mock OAuth/header servers (needs curl)
+./scripts/test-mcpjungle.sh            # sanity/integration script: builds bin/mcpjungle, then starts local servers and mock upstreams on ports 18080-18084 (needs curl)
 ./scripts/test-api-error-responses.sh  # checks HTTP error codes of the REST API against an isolated server
 
 cd web/dashboard && npm run typecheck  # frontend has no lint script
@@ -40,7 +40,7 @@ The PR template asks for `go test ./...` and `scripts/test-mcpjungle.sh` to pass
 
 Test notes:
 - `internal/e2e` registers `@modelcontextprotocol/server-everything` through `npx` as a stdio upstream and skips itself when `npx` is not on PATH.
-- Tests use in-memory SQLite (`pkg/testhelpers.CreateTestDB`, or `gorm.Open(sqlite.Open(":memory:"))` plus `migrations.Migrate`).
+- Tests use in-memory SQLite (`pkg/testhelpers.CreateTestDB`, or `gorm.Open(sqlite.Open(":memory:"))` plus `migrations.Migrate`). Each pooled connection to `:memory:` gets its own empty database, so a test that fires concurrent requests must call `SetMaxOpenConns(1)` on the underlying `*sql.DB`. Otherwise requests fail with "server is not initialized" or missing tables.
 - `cmd` `TestResolveTargetDirForExport/invalid_permissions_for_directory_creation` fails when tests run as root, because root ignores `0o000` permissions.
 
 GoReleaser's `before.hooks` run `build-dashboard.sh`, `go test -v ./...`, `golangci-lint run` and `go mod tidy`, so a lint error blocks a release. The version is injected through ldflags into `pkg/version.Version`.
@@ -50,7 +50,7 @@ GoReleaser's `before.hooks` run `build-dashboard.sh`, `go test -v ./...`, `golan
 ### One binary, CLI over HTTP
 `main.go` calls `cmd.Execute()` (cobra). `start` runs the server. Every other command is a thin HTTP client: it uses the `client/` package against the REST API at `--registry` (default `http://127.0.0.1:8080`), or at `registry_url` / `access_token` from `~/.mcpjungle.conf` (`cmd/config`).
 
-- Every subcommand must set `Annotations` with `group` (`basic` | `advanced`) and a numeric `order`. If it doesn't, the root help's `groupCommands()` returns an error.
+- Every top-level command (added with `rootCmd.AddCommand`) must set `Annotations["group"]` to `basic` or `advanced`, or the root help's `groupCommands()` returns an error. `Annotations["order"]` is optional: it sets the position within the group, and commands without it are listed last.
 - The CLI resolves `${VAR}` placeholders in JSON config files (`register --conf`, `create ... --conf`) itself, through `internal/configresolver`, before it sends the request.
 - The CLI's upstream OAuth flow starts its own localhost callback server (`cmd/register.go`).
 
@@ -84,6 +84,7 @@ All routes are in `internal/api/server.go`:
 - **Sessions** (`session_result.go`, `session_manager.go`):
   - `session_mode: stateless` (default) opens a new upstream connection per call and closes it afterwards.
   - `stateful` keeps one cached client per server in `SessionManager`. It is dropped on idle timeout (`SESSION_IDLE_TIMEOUT_SEC`), on connection-type errors (`invalidateOnError`), on deregister and on shutdown.
+  - The idle timeout in code differs from the docs. When `SESSION_IDLE_TIMEOUT_SEC` is unset or negative, `NewSessionManager` falls back to `DefaultSessionIdleTimeoutSec` (1 hour), and only `0` disables the timeout. README and `docs/reference/environment-variables.mdx` say the default `-1` means "no timeout".
 - **Upstream OAuth** (`upstream_oauth.go`): pending sessions and tokens are stored in the DB (`model/upstream_oauth.go`). The dashboard can't run a localhost callback the way the CLI does, so it uses the server's `/api/dashboard/oauth/callback` and polls `/api/dashboard/oauth/session/:id`.
 
 ### Tool groups (`internal/service/toolgroup`)
