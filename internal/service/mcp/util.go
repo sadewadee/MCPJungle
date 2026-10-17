@@ -243,6 +243,22 @@ func prepareSHTTPClientOptions(serverName string, conf *model.StreamableHTTPConf
 	return opts
 }
 
+// oauthHandlerOf returns the OAuth handler of a client created with an OAuth config, or nil.
+func oauthHandlerOf(c *client.Client) tokenRefresher {
+	var h *transport.OAuthHandler
+	switch t := c.GetTransport().(type) {
+	case *transport.StreamableHTTP:
+		h = t.GetOAuthHandler()
+	case *transport.SSE:
+		h = t.GetOAuthHandler()
+	}
+	if h == nil {
+		// a nil *OAuthHandler in a non-nil interface would pass the refresher != nil check
+		return nil
+	}
+	return h
+}
+
 // defaultHTTPInitializeRequest builds the standard initialize payload used when
 // MCPJungle connects to an upstream streamable HTTP server.
 func defaultHTTPInitializeRequest(url string) mcp.InitializeRequest {
@@ -292,22 +308,24 @@ func createHTTPMcpServerConn(
 				if err != nil {
 					return nil, fmt.Errorf("failed to decode stored OAuth scopes for server %s: %w", s.Name, err)
 				}
+				tokenStore := &upstreamOAuthTokenStore{
+					db:         db,
+					serverName: s.Name,
+					transport:  s.Transport,
+				}
 				oauthConfig := client.OAuthConfig{
 					ClientID:     tokenModel.ClientID,
 					ClientSecret: tokenModel.ClientSecret,
 					RedirectURI:  tokenModel.RedirectURI,
 					Scopes:       scopes,
-					TokenStore: &upstreamOAuthTokenStore{
-						db:         db,
-						serverName: s.Name,
-						transport:  s.Transport,
-					},
-					PKCEEnabled: true,
+					TokenStore:   tokenStore,
+					PKCEEnabled:  true,
 				}
 				c, err = client.NewOAuthStreamableHttpClient(conf.URL, oauthConfig, opts...)
 				if err != nil {
 					return nil, fmt.Errorf("failed to create OAuth streamable HTTP client for MCP server: %w", err)
 				}
+				tokenStore.refresher = oauthHandlerOf(c)
 			}
 		} else if !errors.Is(err, apierrors.ErrNotFound) {
 			return nil, fmt.Errorf("failed to load stored OAuth token for server %s: %w", s.Name, err)
@@ -467,22 +485,24 @@ func createSSEMcpServerConn(
 				if err != nil {
 					return nil, fmt.Errorf("failed to decode stored OAuth scopes for server %s: %w", s.Name, err)
 				}
+				tokenStore := &upstreamOAuthTokenStore{
+					db:         db,
+					serverName: s.Name,
+					transport:  s.Transport,
+				}
 				oauthConfig := client.OAuthConfig{
 					ClientID:     tokenModel.ClientID,
 					ClientSecret: tokenModel.ClientSecret,
 					RedirectURI:  tokenModel.RedirectURI,
 					Scopes:       scopes,
-					TokenStore: &upstreamOAuthTokenStore{
-						db:         db,
-						serverName: s.Name,
-						transport:  s.Transport,
-					},
-					PKCEEnabled: true,
+					TokenStore:   tokenStore,
+					PKCEEnabled:  true,
 				}
 				c, err = client.NewOAuthSSEClient(conf.URL, oauthConfig, opts...)
 				if err != nil {
 					return nil, fmt.Errorf("failed to create OAuth SSE client for MCP server: %w", err)
 				}
+				tokenStore.refresher = oauthHandlerOf(c)
 			}
 		} else if !errors.Is(err, apierrors.ErrNotFound) {
 			return nil, fmt.Errorf("failed to load stored OAuth token for server %s: %w", s.Name, err)
