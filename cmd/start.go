@@ -18,6 +18,7 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/mcpjungle/mcpjungle/internal/api"
+	"github.com/mcpjungle/mcpjungle/internal/clientoauth"
 	"github.com/mcpjungle/mcpjungle/internal/db"
 	"github.com/mcpjungle/mcpjungle/internal/migrations"
 	"github.com/mcpjungle/mcpjungle/internal/model"
@@ -49,6 +50,18 @@ const (
 	SQLiteDBPathEnvVar     = "SQLITE_DB_PATH"
 	ServerModeEnvVar       = "SERVER_MODE"
 	TelemetryEnabledEnvVar = "OTEL_ENABLED"
+)
+
+const (
+	// OAuthIssuerEnvVar enables OAuth sign-in for MCP clients in enterprise mode. It is the issuer
+	// identifier of the external authorization server that issues access tokens to users.
+	OAuthIssuerEnvVar = "MCPJUNGLE_OAUTH_ISSUER"
+	// OAuthAudienceEnvVar is the audience access tokens must be issued for (default: <public URL>/mcp).
+	OAuthAudienceEnvVar = "MCPJUNGLE_OAUTH_AUDIENCE"
+	// OAuthUsernameClaimEnvVar is the access token claim that holds the mcpjungle username (default: sub).
+	OAuthUsernameClaimEnvVar = "MCPJUNGLE_OAUTH_USERNAME_CLAIM"
+	// PublicURLEnvVar is the externally reachable base URL of mcpjungle, eg- https://mcp.example.com
+	PublicURLEnvVar = "MCPJUNGLE_PUBLIC_URL"
 )
 
 const (
@@ -350,6 +363,38 @@ func getPostgresDSN() (string, bool, error) {
 	return dsn, true, nil
 }
 
+// newClientOAuthVerifier returns the verifier for OAuth access tokens that MCP clients
+// present to the MCP proxy, or nil if OAuth sign-in for MCP clients is not configured.
+func newClientOAuthVerifier(cmd *cobra.Command, mode model.ServerMode) (*clientoauth.Verifier, error) {
+	issuer := strings.TrimSpace(os.Getenv(OAuthIssuerEnvVar))
+	if issuer == "" {
+		return nil, nil
+	}
+	if !model.IsEnterpriseMode(mode) {
+		cmd.Printf(
+			"Warning: %s is ignored because MCP clients need no authentication in %s mode\n\n",
+			OAuthIssuerEnvVar, mode,
+		)
+		return nil, nil
+	}
+
+	v, err := clientoauth.NewVerifier(clientoauth.Config{
+		Issuer:        issuer,
+		Audience:      strings.TrimSpace(os.Getenv(OAuthAudienceEnvVar)),
+		PublicURL:     strings.TrimSpace(os.Getenv(PublicURLEnvVar)),
+		UsernameClaim: strings.TrimSpace(os.Getenv(OAuthUsernameClaimEnvVar)),
+	}, nil)
+	if err != nil {
+		return nil, fmt.Errorf("invalid OAuth configuration for MCP clients (check %s): %w", PublicURLEnvVar, err)
+	}
+	cfg := v.Config()
+	log.Printf(
+		"[server] MCP clients can sign in with OAuth: issuer %s, audience %s, username claim %q\n",
+		cfg.Issuer, cfg.Audience, cfg.UsernameClaim,
+	)
+	return v, nil
+}
+
 // getMcpServerInitReqTimeout returns the timeout (in seconds) for MCP server initialization requests.
 // If the corresponding environment variable is not set, it returns the default value.
 // If the value is invalid, it returns an error.
@@ -503,6 +548,11 @@ func runStartServer(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to create Tool Group service: %v", err)
 	}
 
+	clientOAuth, err := newClientOAuthVerifier(cmd, desiredServerMode)
+	if err != nil {
+		return err
+	}
+
 	// create the API server
 	opts := &api.ServerOptions{
 		MCPProxyServer:    mcpProxyServer,
@@ -513,6 +563,7 @@ func runStartServer(cmd *cobra.Command, args []string) error {
 		UserService:       userService,
 		ToolGroupService:  toolGroupService,
 		DashboardService:  dashboardService,
+		ClientOAuth:       clientOAuth,
 		OtelProviders:     otelProviders,
 		Metrics:           mcpMetrics,
 	}

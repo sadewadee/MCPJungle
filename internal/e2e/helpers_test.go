@@ -114,6 +114,12 @@ func decodeJSON(t *testing.T, r *http.Response, target any) {
 // The server is shut down via t.Cleanup.
 func setupE2EServer(t *testing.T, mode model.ServerMode) *e2eEnv {
 	t.Helper()
+	return setupE2EServerWithOptions(t, mode, nil)
+}
+
+// setupE2EServerWithOptions is setupE2EServer with a hook to adjust the API server options.
+func setupE2EServerWithOptions(t *testing.T, mode model.ServerMode, configure func(*api.ServerOptions)) *e2eEnv {
+	t.Helper()
 	if _, err := exec.LookPath("npx"); err != nil {
 		t.Skip("npx not found in PATH – skipping server-everything end-to-end tests")
 	}
@@ -147,7 +153,7 @@ func setupE2EServer(t *testing.T, mode model.ServerMode) *e2eEnv {
 	tgSvc, err := toolgroup.NewToolGroupService(db, mcpService)
 	require.NoError(t, err)
 
-	apiServer, err := api.NewServer(&api.ServerOptions{
+	opts := &api.ServerOptions{
 		MCPProxyServer:    mcpProxy,
 		SseMcpProxyServer: sseMcpProxy,
 		MCPService:        mcpService,
@@ -157,7 +163,11 @@ func setupE2EServer(t *testing.T, mode model.ServerMode) *e2eEnv {
 		UserService:       usrSvc,
 		ToolGroupService:  tgSvc,
 		Metrics:           telemetry.NewNoopCustomMetrics(),
-	})
+	}
+	if configure != nil {
+		configure(opts)
+	}
+	apiServer, err := api.NewServer(opts)
 	require.NoError(t, err)
 
 	env := &e2eEnv{}

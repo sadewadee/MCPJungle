@@ -51,12 +51,28 @@ func (u *UserService) GetUserByAccessToken(token string) (*model.User, error) {
 	return &user, nil
 }
 
+// GetUserByUsername returns the user with the given username.
+func (u *UserService) GetUserByUsername(username string) (*model.User, error) {
+	var user model.User
+	if err := u.db.Where("username = ?", username).First(&user).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, fmt.Errorf("user %s not found: %w", username, apierrors.ErrNotFound)
+		}
+		return nil, fmt.Errorf("failed to get user %s: %w", username, err)
+	}
+	return &user, nil
+}
+
 // CreateUser creates a new user with the specified username.
 // This method currently only supports creating a standard user, ie, user with the "user" role.
 func (u *UserService) CreateUser(input *model.User) (*model.User, error) {
 	user := model.User{
-		Username: input.Username,
-		Role:     types.UserRoleUser,
+		Username:  input.Username,
+		Role:      types.UserRoleUser,
+		AllowList: input.AllowList,
+	}
+	if user.AllowList == nil {
+		user.AllowList = []byte("[]")
 	}
 	if input.AccessToken == "" {
 		// no custom access token provided, generate a new one

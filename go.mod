@@ -5,6 +5,7 @@ go 1.24.3
 require (
 	github.com/gin-gonic/gin v1.10.1
 	github.com/glebarez/sqlite v1.11.0
+	github.com/go-jose/go-jose/v4 v4.1.2
 	github.com/joho/godotenv v1.5.1
 	github.com/mark3labs/mcp-go v0.48.0
 	github.com/prometheus/client_golang v1.17.0

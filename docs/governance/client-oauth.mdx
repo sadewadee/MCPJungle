@@ -1,0 +1,109 @@
+---
+title: "Sign in MCP clients with OAuth"
+description: "Let people sign in to the gateway from their MCP client through your identity provider, and give each user access only to the MCP servers they need."
+---
+
+In enterprise mode, MCP clients normally authenticate to Mcpjungle with a static token that you create with `mcpjungle create mcp-client` (see [Access control](/governance/access-control)).
+
+You can also let each person sign in from their MCP client with OAuth, through your own identity provider such as Keycloak, Auth0, Okta, or Microsoft Entra ID. Mcpjungle then applies that person's own list of allowed MCP servers.
+
+<Note>
+  This page is about MCP clients connecting **to** Mcpjungle. For Mcpjungle connecting to upstream MCP servers that require OAuth, see [Upstream authentication](/governance/upstream-authentication).
+</Note>
+
+## How it works
+
+1. The MCP client calls `/mcp` without a token. Mcpjungle responds with `401` and a `WWW-Authenticate` header that points to its protected resource metadata.
+2. The client reads `https://<public-url>/.well-known/oauth-protected-resource/mcp`, which names your identity provider as the authorization server.
+3. The client signs the person in at your identity provider and receives an access token.
+4. The client calls `/mcp` with the token. Mcpjungle checks the token's signature against your provider's published keys, and its issuer, audience, and expiry. It then looks up the Mcpjungle user named in the token.
+5. The user sees and can call only the tools of the MCP servers in their allow-list. Admins can access every server.
+
+Your identity provider issues the tokens. Mcpjungle only verifies them.
+
+## Requirements
+
+- Mcpjungle runs in enterprise mode.
+- Mcpjungle is reachable at a stable public URL.
+- Your identity provider issues **JWT access tokens** signed with an asymmetric key (`RS*`, `PS*`, `ES*`, or `EdDSA`).
+- Your identity provider publishes OpenID Connect discovery or OAuth authorization server metadata that includes a `jwks_uri`.
+- Your MCP client supports MCP authorization.
+
+Opaque access tokens that need token introspection are not supported.
+
+## Configure Mcpjungle
+
+```bash
+export MCPJUNGLE_OAUTH_ISSUER=https://auth.example.com/realms/mcp
+export MCPJUNGLE_PUBLIC_URL=https://mcp.example.com
+mcpjungle start --enterprise
+```
+
+`MCPJUNGLE_OAUTH_ISSUER` must match the `iss` claim in your access tokens exactly.
+
+Optional settings:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `MCPJUNGLE_OAUTH_AUDIENCE` | `<public URL>/mcp` | Value that access tokens must carry in `aud`. |
+| `MCPJUNGLE_OAUTH_USERNAME_CLAIM` | `sub` | Token claim that holds the Mcpjungle username. |
+
+On startup, Mcpjungle logs the issuer, audience, and username claim it uses:
+
+```text
+[server] MCP clients can sign in with OAuth: issuer https://auth.example.com/realms/mcp, audience https://mcp.example.com/mcp, username claim "sub"
+```
+
+## Configure your identity provider
+
+- Register the MCP client applications, or enable dynamic client registration if your provider and clients support it.
+- Make access tokens carry the audience from `MCPJUNGLE_OAUTH_AUDIENCE` in their `aud` claim. For example, add an audience mapper in Keycloak, or create an API with that identifier in Auth0.
+- Make sure the claim named in `MCPJUNGLE_OAUTH_USERNAME_CLAIM` holds the Mcpjungle username. The default `sub` claim is often an opaque ID, so `email` or `preferred_username` is usually easier to work with.
+
+## Give each user their servers
+
+Create one Mcpjungle user per person. The username must equal the value of the username claim in their access tokens.
+
+```bash
+mcpjungle create user alice@example.com --allow "github, notion, slack"
+mcpjungle create user bob@example.com --allow "github, calculator"
+```
+
+In a config file, use `allowed_servers`:
+
+```json
+{
+  "name": "alice@example.com",
+  "access_token_ref": { "env": "ALICE_ACCESS_TOKEN" },
+  "allowed_servers": ["github", "notion", "slack"]
+}
+```
+
+A user created without `--allow` cannot access any MCP server through OAuth sign-in. `mcpjungle list users` shows each user's allowed servers.
+
+<Note>
+  You cannot change a user's allow-list after creating the user yet. Delete the user and create them again. Signing in with OAuth does not use the user's Mcpjungle access token, so this does not affect OAuth sign-in. If the person also uses the CLI, pass their existing token with `--access-token`.
+</Note>
+
+## Connect an MCP client
+
+Point the MCP client at `https://mcp.example.com/mcp` without an `Authorization` header. A client that supports MCP authorization opens your identity provider's sign-in page.
+
+Static MCP client tokens keep working alongside OAuth sign-in.
+
+## Limitations
+
+- The allow-list applies to the MCP proxy endpoints: `/mcp`, `/sse`, and tool group endpoints. A user who calls the REST API or the CLI (for example `mcpjungle invoke`) with their Mcpjungle access token is not restricted by it.
+- Mcpjungle does not check whether a token was revoked. Keep access token lifetimes short in your identity provider.
+- One audience applies to all MCP endpoints, including tool group endpoints.
+
+## Related pages
+
+<CardGroup cols={2}>
+  <Card title="Access control" icon="key" href="/governance/access-control">
+    Create MCP client identities with static tokens.
+  </Card>
+  <Card title="Clients and users" icon="users" href="/governance/clients-and-users">
+    Manage machine identities and human user accounts.
+  </Card>
+</CardGroup>

@@ -36,6 +36,39 @@ func TestCreateUser(t *testing.T) {
 	}
 }
 
+func TestCreateUserAllowList(t *testing.T) {
+	setup, _ := testhelpers.SetupUserTest(t)
+	defer setup.Cleanup()
+	svc := NewUserService(setup.DB)
+
+	withList, err := svc.CreateUser(&model.User{Username: "alice", AllowList: []byte(`["github","slack"]`)})
+	testhelpers.AssertNoError(t, err)
+	testhelpers.AssertEqual(t, `["github","slack"]`, string(withList.AllowList))
+
+	// without an allow-list, the user can access no servers
+	withoutList, err := svc.CreateUser(&model.User{Username: "bob"})
+	testhelpers.AssertNoError(t, err)
+	testhelpers.AssertEqual(t, `[]`, string(withoutList.AllowList))
+}
+
+func TestGetUserByUsername(t *testing.T) {
+	setup, _ := testhelpers.SetupUserTest(t)
+	defer setup.Cleanup()
+	svc := NewUserService(setup.DB)
+
+	created, err := svc.CreateUser(&model.User{Username: "alice"})
+	testhelpers.AssertNoError(t, err)
+
+	found, err := svc.GetUserByUsername("alice")
+	testhelpers.AssertNoError(t, err)
+	testhelpers.AssertEqual(t, created.ID, found.ID)
+
+	_, err = svc.GetUserByUsername("nobody")
+	if !errors.Is(err, apierrors.ErrNotFound) {
+		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+}
+
 func TestCreateUserWithExistingUsername(t *testing.T) {
 	setup, _ := testhelpers.SetupUserTest(t)
 	defer setup.Cleanup()

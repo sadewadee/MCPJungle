@@ -971,6 +971,21 @@ Again, when using the config file, you **must** provide a custom access token.
 
 Just like other JSON config files in MCPJungle, user config files also support `${VAR_NAME}` placeholders in string fields.
 
+#### Signing in from MCP clients with OAuth
+Instead of handing out static MCP client tokens, you can let people sign in from their MCP client through your own identity provider (Keycloak, Auth0, Okta, Entra ID, ...).
+Each user then gets only the MCP servers in their own allow-list:
+
+```bash
+export MCPJUNGLE_OAUTH_ISSUER=https://auth.example.com/realms/mcp
+export MCPJUNGLE_PUBLIC_URL=https://mcp.example.com
+mcpjungle start --enterprise
+
+mcpjungle create user alice@example.com --allow "github, notion, slack"
+mcpjungle create user bob@example.com --allow "github, calculator"
+```
+
+See [Sign in MCP clients with OAuth](https://docs.mcpjungle.com/governance/client-oauth) for the identity provider setup and limitations.
+
 ### OpenTelemetry
 MCPJungle supports Prometheus-compatible OpenTelemetry Metrics for observability.
 

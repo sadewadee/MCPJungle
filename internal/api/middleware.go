@@ -188,13 +188,20 @@ func (s *Server) checkAuthForMcpProxyAccess() gin.HandlerFunc {
 		authHeader := c.GetHeader("Authorization")
 		token := strings.TrimPrefix(authHeader, "Bearer ")
 		if token == "" {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "missing MCP client access token"})
+			s.abortMcpUnauthorized(c, "", "missing MCP client access token")
 			return
 		}
 		client, err := s.mcpClientService.GetClientByToken(token)
 		if err != nil {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid MCP client token"})
-			return
+			if s.clientOAuth == nil {
+				s.abortMcpUnauthorized(c, "", "invalid MCP client token")
+				return
+			}
+			// not an MCP client token, so it may be an OAuth access token issued to a user
+			var ok bool
+			if client, ok = s.authenticateOAuthUser(c, token); !ok {
+				return
+			}
 		}
 
 		// inject the authenticated MCP client in context for the proxy to use

@@ -9,6 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/mark3labs/mcp-go/server"
+	"github.com/mcpjungle/mcpjungle/internal/clientoauth"
 	"github.com/mcpjungle/mcpjungle/internal/dashboardui"
 	"github.com/mcpjungle/mcpjungle/internal/model"
 	"github.com/mcpjungle/mcpjungle/internal/service/config"
@@ -47,6 +48,10 @@ type ServerOptions struct {
 	ToolGroupService *toolgroup.ToolGroupService
 	DashboardService *dashboard.Service
 
+	// ClientOAuth, when set, lets MCP clients authenticate to the MCP proxy with OAuth access
+	// tokens issued to mcpjungle users by an external authorization server (enterprise mode only).
+	ClientOAuth *clientoauth.Verifier
+
 	OtelProviders *telemetry.Providers
 	Metrics       telemetry.CustomMetrics
 }
@@ -65,6 +70,8 @@ type Server struct {
 	userService      *user.UserService
 	toolGroupService *toolgroup.ToolGroupService
 	dashboardService *dashboard.Service
+
+	clientOAuth *clientoauth.Verifier
 
 	otelProviders *telemetry.Providers
 	metrics       telemetry.CustomMetrics
@@ -106,6 +113,7 @@ func NewServer(opts *ServerOptions) (*Server, error) {
 		userService:           opts.UserService,
 		toolGroupService:      opts.ToolGroupService,
 		dashboardService:      opts.DashboardService,
+		clientOAuth:           opts.ClientOAuth,
 		otelProviders:         opts.OtelProviders,
 		metrics:               opts.Metrics,
 		dashboardOAuthResults: make(map[string]dashboardOAuthSessionResult),
@@ -194,6 +202,13 @@ func (s *Server) setupRouter() (*gin.Engine, error) {
 	)
 
 	r.POST("/init", s.registerInitServerHandler())
+
+	if s.clientOAuth != nil {
+		// OAuth protected resource metadata (RFC 9728), which MCP clients read to find
+		// the authorization server where users sign in.
+		r.GET(clientoauth.WellKnownPath, s.protectedResourceMetadataHandler())
+		r.GET(clientoauth.WellKnownPath+"/*resource", s.protectedResourceMetadataHandler())
+	}
 
 	requireEnterpriseMode := s.requireServerMode(model.ModeEnterprise)
 	requireDashboardMode := s.requireDashboardMode()

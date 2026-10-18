@@ -76,6 +76,10 @@ func TestCreateUserSubcommand(t *testing.T) {
 	configFlag := createUserCmd.Flags().Lookup("conf")
 	testhelpers.AssertNotNil(t, configFlag)
 	testhelpers.AssertTrue(t, len(configFlag.Usage) > 0, "Config flag should have usage description")
+
+	allowFlag := createUserCmd.Flags().Lookup("allow")
+	testhelpers.AssertNotNil(t, allowFlag)
+	testhelpers.AssertTrue(t, len(allowFlag.Usage) > 0, "Allow flag should have usage description")
 }
 
 func TestCreateToolGroupSubcommand(t *testing.T) {
