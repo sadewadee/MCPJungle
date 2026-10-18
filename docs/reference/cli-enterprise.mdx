@@ -150,7 +150,12 @@ mcpjungle create user alice
 
 # Supply your own token
 mcpjungle create user alice --access-token alice-custom-token
+
+# Choose the MCP servers alice can access after signing in with OAuth
+mcpjungle create user alice --allow "github, notion"
 ```
+
+The `--allow` list (`allowed_servers` in a config file) only applies when MCP clients sign in with OAuth. See [Sign in MCP clients with OAuth](/governance/client-oauth).
 
 Config file example:
 

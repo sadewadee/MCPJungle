@@ -165,6 +165,36 @@ When the server starts it resolves the database connection in this order:
 
 ---
 
+## OAuth for MCP clients
+
+These variables let people sign in to the gateway from their MCP client through your identity provider. They take effect only in enterprise mode. See [Sign in MCP clients with OAuth](/governance/client-oauth).
+
+<ParamField path="MCPJUNGLE_OAUTH_ISSUER" type="string">
+  Issuer identifier of the authorization server that issues access tokens to your users. Setting it enables OAuth sign-in for MCP clients. It must match the `iss` claim of the tokens exactly.
+
+  ```bash
+  export MCPJUNGLE_OAUTH_ISSUER=https://auth.example.com/realms/mcp
+  ```
+</ParamField>
+
+<ParamField path="MCPJUNGLE_PUBLIC_URL" type="string">
+  Externally reachable base URL of mcpjungle. Required when `MCPJUNGLE_OAUTH_ISSUER` is set. MCP clients receive URLs built from it.
+
+  ```bash
+  export MCPJUNGLE_PUBLIC_URL=https://mcp.example.com
+  ```
+</ParamField>
+
+<ParamField path="MCPJUNGLE_OAUTH_AUDIENCE" type="string" default="<public URL>/mcp">
+  Value that access tokens must carry in their `aud` claim.
+</ParamField>
+
+<ParamField path="MCPJUNGLE_OAUTH_USERNAME_CLAIM" type="string" default="sub">
+  Access token claim whose value is the mcpjungle username of the person signing in, for example `email` or `preferred_username`.
+</ParamField>
+
+---
+
 ## Connections
 
 <ParamField path="SESSION_IDLE_TIMEOUT_SEC" type="integer" default="-1">
@@ -226,5 +256,9 @@ When the server starts it resolves the database connection in this order:
 | `MCP_SERVER_INIT_REQ_TIMEOUT_SEC` | Server | `30` | Seconds to wait for MCP server initialization. |
 | `OTEL_ENABLED` | Observability | mode-dependent | Enable OpenTelemetry metrics. |
 | `OTEL_RESOURCE_ATTRIBUTES` | Observability | — | Additional OTel resource attributes. |
+| `MCPJUNGLE_OAUTH_ISSUER` | OAuth for MCP clients | — | Issuer of access tokens. Enables OAuth sign-in for MCP clients. |
+| `MCPJUNGLE_PUBLIC_URL` | OAuth for MCP clients | — | Public base URL of mcpjungle. Required with `MCPJUNGLE_OAUTH_ISSUER`. |
+| `MCPJUNGLE_OAUTH_AUDIENCE` | OAuth for MCP clients | `<public URL>/mcp` | Required `aud` value of access tokens. |
+| `MCPJUNGLE_OAUTH_USERNAME_CLAIM` | OAuth for MCP clients | `sub` | Token claim holding the mcpjungle username. |
 | `SESSION_IDLE_TIMEOUT_SEC` | Connections | `-1` | Idle timeout for stateful sessions. |
 | `MCPJUNGLE_IMAGE_TAG` | Docker | `latest` | Docker image tag for Compose deployments. |

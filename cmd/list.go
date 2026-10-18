@@ -298,6 +298,9 @@ func runListUsers(cmd *cobra.Command, args []string) error {
 			cmd.Printf("%d. %s  [ADMIN]\n", i+1, u.Username)
 		} else {
 			cmd.Printf("%d. %s\n", i+1, u.Username)
+			if len(u.AllowList) > 0 {
+				cmd.Printf("   Allowed servers: %s\n", strings.Join(u.AllowList, ","))
+			}
 		}
 
 		if i < len(users)-1 {

@@ -3,6 +3,7 @@ package model
 
 import (
 	"github.com/mcpjungle/mcpjungle/pkg/types"
+	"gorm.io/datatypes"
 	"gorm.io/gorm"
 )
 
@@ -15,4 +16,9 @@ type User struct {
 	Username    string         `json:"username" gorm:"unique; not null"`
 	Role        types.UserRole `json:"role" gorm:"not null"`
 	AccessToken string         `json:"access_token" gorm:"unique; not null"`
+
+	// AllowList contains the names of the MCP servers this user can view and call through the
+	// MCP proxy after signing in with OAuth, stored as a JSON array like McpClient.AllowList.
+	// Admins can access all MCP servers regardless of this list.
+	AllowList datatypes.JSON `json:"allow_list" gorm:"type:jsonb"`
 }

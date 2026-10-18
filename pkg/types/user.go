@@ -25,6 +25,10 @@ type UserConfig struct {
 	// an external source. Use this in production scenarios, especially when
 	// you want to commit the user configuration to version control.
 	AccessTokenRef AccessTokenRef `json:"access_token_ref"`
+
+	// AllowMcpServers lists the MCP servers the user can access through the MCP proxy
+	// after signing in with OAuth.
+	AllowMcpServers []string `json:"allowed_servers"`
 }
 
 // User represents an authenticated, human user in mcpjungle
@@ -33,11 +37,16 @@ type UserConfig struct {
 type User struct {
 	Username string `json:"username"`
 	Role     string `json:"role"`
+	// AllowList lists the MCP servers the user can access through the MCP proxy after signing in with OAuth.
+	AllowList []string `json:"allow_list,omitempty"`
 }
 
 type CreateOrUpdateUserRequest struct {
 	Username    string `json:"username"`
 	AccessToken string `json:"access_token,omitempty"`
+	// AllowList lists the MCP servers the user can access through the MCP proxy after signing in with OAuth.
+	// It is only used when creating a user.
+	AllowList []string `json:"allow_list,omitempty"`
 }
 
 type CreateOrUpdateUserResponse struct {

@@ -76,6 +76,7 @@
               "governance/overview",
               "governance/upstream-authentication",
               "governance/access-control",
+              "governance/client-oauth",
               "governance/clients-and-users"
             ]
           },

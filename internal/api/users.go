@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -42,8 +43,9 @@ func (s *Server) listUsersHandler() gin.HandlerFunc {
 		resp := make([]*types.User, len(users))
 		for i, u := range users {
 			resp[i] = &types.User{
-				Username: u.Username,
-				Role:     string(u.Role),
+				Username:  u.Username,
+				Role:      string(u.Role),
+				AllowList: userAllowList(&u),
 			}
 		}
 
@@ -113,9 +115,17 @@ func (s *Server) whoAmIHandler() gin.HandlerFunc {
 		}
 
 		resp := types.User{
-			Username: u.Username,
-			Role:     string(u.Role),
+			Username:  u.Username,
+			Role:      string(u.Role),
+			AllowList: userAllowList(u),
 		}
 		c.JSON(http.StatusOK, resp)
 	}
+}
+
+// userAllowList decodes a user's stored server allow-list for API responses.
+func userAllowList(u *model.User) []string {
+	var allowList []string
+	_ = json.Unmarshal(u.AllowList, &allowList)
+	return allowList
 }

@@ -56,6 +56,7 @@ var createUserCmd = &cobra.Command{
 		"- List and view MCP servers & tools\n" +
 		"- Check tool usage and invoke them\n\n" +
 		"This operation generates a unique access token for the user to use when making requests.\n" +
+		"If MCP clients sign in with OAuth, use --allow to choose the MCP servers this user can access through the MCP proxy.\n" +
 		"It is mandatory to either specify the username or a config file.\n" +
 		"This command is only available in Enterprise mode.",
 	RunE: runCreateUser,
@@ -83,6 +84,7 @@ var (
 	createMcpClientCmdConfigFilePath string
 
 	createUserCmdAccessToken    string
+	createUserCmdAllowedServers string
 	createUserCmdConfigFilePath string
 
 	createToolGroupConfigFilePath string
@@ -123,6 +125,13 @@ func init() {
 		"access-token",
 		"",
 		"Custom access token for the user. If not provided, a random token will be generated.",
+	)
+	createUserCmd.Flags().StringVar(
+		&createUserCmdAllowedServers,
+		"allow",
+		"",
+		"Comma-separated list of MCP servers that this user can access through the MCP proxy after signing in with OAuth.\n"+
+			"By default, the list is empty, meaning the user cannot access any MCP servers this way.",
 	)
 	createUserCmd.Flags().StringVarP(
 		&createUserCmdConfigFilePath,
@@ -236,6 +245,7 @@ func runCreateUser(cmd *cobra.Command, args []string) error {
 		user = &types.CreateOrUpdateUserRequest{
 			Username:    args[0],
 			AccessToken: createUserCmdAccessToken,
+			AllowList:   parseAllowList(createUserCmdAllowedServers, cmd),
 		}
 	} else {
 		// config file provided, ignore command line args and read from file
@@ -256,6 +266,12 @@ func runCreateUser(cmd *cobra.Command, args []string) error {
 		user = &types.CreateOrUpdateUserRequest{
 			Username:    config.Username,
 			AccessToken: accessToken,
+			AllowList:   config.AllowMcpServers,
+		}
+		for _, entry := range config.AllowMcpServers {
+			if entry == types.AllowAllMcpServers {
+				warnAllowAll(cmd)
+			}
 		}
 	}
 	resp, err := apiClient.CreateUser(user)
@@ -267,6 +283,9 @@ func runCreateUser(cmd *cobra.Command, args []string) error {
 	}
 
 	cmd.Printf("User '%s' created successfully\n", user.Username)
+	if len(user.AllowList) > 0 {
+		cmd.Printf("Servers accessible after signing in with OAuth: %s\n", strings.Join(user.AllowList, ","))
+	}
 	cmd.Println("The user should now run the following command to log into mcpjungle:")
 	cmd.Println()
 	cmd.Printf("    mcpjungle login %s\n", resp.AccessToken)
