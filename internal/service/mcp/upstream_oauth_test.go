@@ -8,6 +8,8 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -223,6 +225,72 @@ func TestUpstreamOAuthTokenStore_SaveAndGetToken(t *testing.T) {
 	}
 	if persisted.RefreshToken != "refresh-token" {
 		t.Fatalf("expected refresh token to be updated, got %q", persisted.RefreshToken)
+	}
+}
+
+// countingRefresher stands in for mcp-go's OAuth handler: it saves the refreshed token and counts refreshes.
+type countingRefresher struct {
+	store *upstreamOAuthTokenStore
+	calls atomic.Int32
+}
+
+func (r *countingRefresher) RefreshToken(ctx context.Context, _ string) (*mcpgotransport.Token, error) {
+	r.calls.Add(1)
+	time.Sleep(50 * time.Millisecond)
+	token := &mcpgotransport.Token{
+		AccessToken:  "refreshed-access-token",
+		TokenType:    "Bearer",
+		RefreshToken: "refreshed-refresh-token",
+		ExpiresAt:    time.Now().Add(time.Hour),
+	}
+	return token, r.store.SaveToken(ctx, token)
+}
+
+func TestUpstreamOAuthTokenStore_ConcurrentGetTokenRefreshesExpiredTokenOnce(t *testing.T) {
+	t.Parallel()
+
+	setup := testhelpers.SetupTestDB(t)
+	// every pooled connection to :memory: is a separate database, so keep a single one
+	sqlDB, err := setup.DB.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
+
+	require.NoError(t, setup.DB.Create(&model.UpstreamOAuthToken{
+		ServerName:   "refresh-once",
+		Transport:    types.TransportStreamableHTTP,
+		AccessToken:  "expired-access-token",
+		RefreshToken: "old-refresh-token",
+		ExpiresAt:    time.Now().Add(-time.Minute),
+	}).Error)
+
+	refresher := &countingRefresher{
+		store: &upstreamOAuthTokenStore{db: setup.DB, serverName: "refresh-once", transport: types.TransportStreamableHTTP},
+	}
+
+	// each caller gets its own store, the way separate upstream connections do
+	const callers = 5
+	tokens := make([]*mcpgotransport.Token, callers)
+	errs := make([]error, callers)
+	var wg sync.WaitGroup
+	for i := range tokens {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			store := &upstreamOAuthTokenStore{
+				db:         setup.DB,
+				serverName: "refresh-once",
+				transport:  types.TransportStreamableHTTP,
+				refresher:  refresher,
+			}
+			tokens[i], errs[i] = store.GetToken(context.Background())
+		}(i)
+	}
+	wg.Wait()
+
+	require.EqualValues(t, 1, refresher.calls.Load())
+	for i := range tokens {
+		require.NoError(t, errs[i])
+		require.Equal(t, "refreshed-access-token", tokens[i].AccessToken)
 	}
 }
 

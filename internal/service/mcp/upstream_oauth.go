@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sync"
 	"time"
 
 	mcpgoclient "github.com/mark3labs/mcp-go/client"
@@ -49,10 +50,52 @@ type upstreamOAuthTokenStore struct {
 	db         *gorm.DB
 	serverName string
 	transport  types.McpServerTransport
+
+	// refresher, when set, lets GetToken refresh an expired token itself.
+	refresher tokenRefresher
 }
 
-// GetToken loads the currently stored upstream OAuth token for a server.
+// tokenRefresher is implemented by mcp-go's *transport.OAuthHandler.
+type tokenRefresher interface {
+	RefreshToken(ctx context.Context, refreshToken string) (*mcpgotransport.Token, error)
+}
+
+// upstreamOAuthRefreshLocks holds one *sync.Mutex per upstream server name, so
+// that only one connection at a time refreshes that server's token.
+var upstreamOAuthRefreshLocks sync.Map
+
+// GetToken returns the stored upstream OAuth token for a server.
+//
+// mcp-go refreshes expired tokens per connection without coordinating between
+// connections, so concurrent tool calls would all spend the same refresh token,
+// and providers that rotate refresh tokens reject every use but the first.
+// When a refresher is set, an expired token is refreshed here instead, by one
+// connection at a time; the others wait and then read the refreshed token.
 func (s *upstreamOAuthTokenStore) GetToken(ctx context.Context) (*mcpgotransport.Token, error) {
+	token, err := s.loadToken(ctx)
+	if err != nil || s.refresher == nil || !token.IsExpired() || token.RefreshToken == "" {
+		return token, err
+	}
+
+	lock, _ := upstreamOAuthRefreshLocks.LoadOrStore(s.serverName, &sync.Mutex{})
+	mu := lock.(*sync.Mutex)
+	mu.Lock()
+	defer mu.Unlock()
+
+	// another connection may have refreshed the token while we waited
+	token, err = s.loadToken(ctx)
+	if err != nil || !token.IsExpired() || token.RefreshToken == "" {
+		return token, err
+	}
+	if refreshed, err := s.refresher.RefreshToken(ctx, token.RefreshToken); err == nil {
+		return refreshed, nil
+	}
+	// let mcp-go handle the expired token as usual (retry refresh, then require authorization)
+	return token, nil
+}
+
+// loadToken loads the currently stored upstream OAuth token for a server.
+func (s *upstreamOAuthTokenStore) loadToken(ctx context.Context) (*mcpgotransport.Token, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -226,9 +269,30 @@ func (m *MCPService) persistOAuthTokenMetadata(ctx context.Context, serverName s
 	})
 }
 
+// ensureServerNameAvailable returns an invalid-input error if an MCP server with
+// the given name is already registered.
+func (m *MCPService) ensureServerNameAvailable(name string) error {
+	_, err := m.GetMcpServer(name)
+	if err == nil {
+		return fmt.Errorf("MCP server %s already exists: %w", name, apierrors.ErrInvalidInput)
+	}
+	if !errors.Is(err, apierrors.ErrNotFound) {
+		return fmt.Errorf("failed to check for existing MCP server %s: %w", name, err)
+	}
+	return nil
+}
+
 // bootstrapUpstreamOAuth starts a two-phase registration flow after an
 // unauthenticated upstream registration attempt received an HTTP 401.
 func (m *MCPService) bootstrapUpstreamOAuth(ctx context.Context, input *types.RegisterServerInput, server *model.McpServer, force bool, initiatedBy string) error {
+	if !force {
+		// Fail now rather than after the operator has gone through authorization.
+		// With force, the caller has already deregistered any existing server.
+		if err := m.ensureServerNameAvailable(server.Name); err != nil {
+			return err
+		}
+	}
+
 	if input.OAuthRedirectURI == "" {
 		return fmt.Errorf(
 			"upstream server requires OAuth authorization, but oauth_redirect_uri was not provided: %w",
@@ -567,11 +631,12 @@ func (m *MCPService) CompleteUpstreamOAuthSession(ctx context.Context, sessionID
 		return nil, err
 	}
 
-	if err := m.persistOAuthTokenMetadata(ctx, server.Name, server.Transport, input.OAuthRedirectURI, input.OAuthClientID, input.OAuthClientSecret, input.OAuthScopes); err != nil {
-		return nil, fmt.Errorf("failed to persist OAuth client metadata: %w", err)
-	}
-
-	if err := m.processOAuthAuthorizationCode(ctx, server, &input, session.CodeVerifier, state, code); err != nil {
+	// Stored OAuth state is keyed by server name, so exchange the code into memory
+	// first and write nothing until any existing server with this name is dealt
+	// with. Otherwise the new credentials would overwrite those of an existing
+	// server, or be deleted again when force deregisters it.
+	exchangedTokens := mcpgoclient.NewMemoryTokenStore()
+	if err := m.processOAuthAuthorizationCode(ctx, server, &input, exchangedTokens, session.CodeVerifier, state, code); err != nil {
 		return nil, err
 	}
 
@@ -583,6 +648,20 @@ func (m *MCPService) CompleteUpstreamOAuthSession(ctx context.Context, sessionID
 		} else if !errors.Is(err, apierrors.ErrNotFound) {
 			return nil, fmt.Errorf("failed to check for existing server during OAuth completion: %w", err)
 		}
+	} else if err := m.ensureServerNameAvailable(server.Name); err != nil {
+		return nil, err
+	}
+
+	if err := m.persistOAuthTokenMetadata(ctx, server.Name, server.Transport, input.OAuthRedirectURI, input.OAuthClientID, input.OAuthClientSecret, input.OAuthScopes); err != nil {
+		return nil, fmt.Errorf("failed to persist OAuth client metadata: %w", err)
+	}
+	token, err := exchangedTokens.GetToken(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read exchanged OAuth token: %w", err)
+	}
+	tokenStore := &upstreamOAuthTokenStore{db: m.db, serverName: server.Name, transport: server.Transport}
+	if err := tokenStore.SaveToken(ctx, token); err != nil {
+		return nil, fmt.Errorf("failed to persist OAuth token: %w", err)
 	}
 
 	if err := m.finalizeMcpServerRegistration(ctx, server); err != nil {
@@ -641,14 +720,8 @@ func (m *MCPService) DeletePendingUpstreamOAuthSession(ctx context.Context, sess
 }
 
 // processOAuthAuthorizationCode recreates the upstream OAuth handler and uses it
-// to exchange the callback code for stored upstream tokens.
-func (m *MCPService) processOAuthAuthorizationCode(ctx context.Context, server *model.McpServer, input *types.RegisterServerInput, codeVerifier, state, code string) error {
-	tokenStore := &upstreamOAuthTokenStore{
-		db:         m.db,
-		serverName: server.Name,
-		transport:  server.Transport,
-	}
-
+// to exchange the callback code for upstream tokens, which it saves in tokenStore.
+func (m *MCPService) processOAuthAuthorizationCode(ctx context.Context, server *model.McpServer, input *types.RegisterServerInput, tokenStore mcpgotransport.TokenStore, codeVerifier, state, code string) error {
 	var oauthErr *mcpgoclient.OAuthAuthorizationRequiredError
 
 	switch server.Transport {
