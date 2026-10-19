@@ -42,6 +42,7 @@ Test notes:
 - `internal/e2e` registers `@modelcontextprotocol/server-everything` through `npx` as a stdio upstream and skips itself when `npx` is not on PATH.
 - Tests use in-memory SQLite (`pkg/testhelpers.CreateTestDB`, or `gorm.Open(sqlite.Open(":memory:"))` plus `migrations.Migrate`). Each pooled connection to `:memory:` gets its own empty database, so a test that fires concurrent requests must call `SetMaxOpenConns(1)` on the underlying `*sql.DB`. Otherwise requests fail with "server is not initialized" or missing tables.
 - `cmd` `TestResolveTargetDirForExport/invalid_permissions_for_directory_creation` fails when tests run as root, because root ignores `0o000` permissions.
+- For OAuth sign-in by MCP clients, `internal/clientoauth/clientoauthtest.NewIssuer` is a fake IdP (discovery + JWKS) that mints signed access tokens. In e2e tests, `setupE2EServerWithOptions` lets you set `ServerOptions.ClientOAuth`.
 
 GoReleaser's `before.hooks` run `build-dashboard.sh`, `go test -v ./...`, `golangci-lint run` and `go mod tidy`, so a lint error blocks a release. The version is injected through ldflags into `pkg/version.Version`.
 
@@ -86,6 +87,8 @@ All routes are in `internal/api/server.go`:
   - `stateful` keeps one cached client per server in `SessionManager`. It is dropped on idle timeout (`SESSION_IDLE_TIMEOUT_SEC`), on connection-type errors (`invalidateOnError`), on deregister and on shutdown.
   - The idle timeout in code differs from the docs. When `SESSION_IDLE_TIMEOUT_SEC` is unset or negative, `NewSessionManager` falls back to `DefaultSessionIdleTimeoutSec` (1 hour), and only `0` disables the timeout. README and `docs/reference/environment-variables.mdx` say the default `-1` means "no timeout".
 - **Upstream OAuth** (`upstream_oauth.go`): pending sessions and tokens are stored in the DB (`model/upstream_oauth.go`). The dashboard can't run a localhost callback the way the CLI does, so it uses the server's `/api/dashboard/oauth/callback` and polls `/api/dashboard/oauth/session/:id`.
+  - `upstreamOAuthTokenStore.GetToken` refreshes an expired token itself, under a per-server lock (`upstreamOAuthRefreshLocks`), because each connection gets its own mcp-go OAuth handler and they don't coordinate. Without the lock, concurrent calls spend the same rotating refresh token twice.
+  - Completing an OAuth registration exchanges the code into an in-memory token store first, and writes the server's DB credentials only after the name check (or the `force` deregister) has passed.
 
 ### Tool groups (`internal/service/toolgroup`)
 Each group gets its own pair of mcp-go servers, holding only the group's effective tools (explicitly listed tools, plus included servers, minus excluded tools).
@@ -104,6 +107,7 @@ The mode is persisted in the DB (`ServerConfig`). `start` refuses to run in a di
   - `init-server` creates the admin user;
   - `/api/v0` needs a user bearer token, and admin routes need the admin role;
   - the MCP proxy needs an *MCP client* token, and `ProxyToolFilter` (list) plus `authorizeProxyServerAccess` (call) limit a client to its allowed servers;
+  - when `MCPJUNGLE_OAUTH_ISSUER` and `MCPJUNGLE_PUBLIC_URL` are set, the MCP proxy also accepts users' OAuth access tokens (JWTs from an external IdP, verified by `internal/clientoauth`). `checkAuthForMcpProxyAccess` tries the static client token first, then maps the token's username claim to a user and builds a synthetic `McpClient` from the user's `allow_list` (admins get `*`), so the same filters apply. The user allow-list does not restrict `/api/v0`;
   - users and MCP clients endpoints are enterprise-only;
   - dashboard routes return 404;
   - OTEL on by default (`OTEL_ENABLED` overrides).
