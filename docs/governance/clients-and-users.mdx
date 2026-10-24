@@ -32,7 +32,9 @@ Users are human accounts for operators who need authenticated CLI or API access.
 
 Compared with admins, a standard user has a narrower permission set. They can inspect and use Mcpjungle, but they do not get the same write capabilities as an admin.
 
-Users can also sign in from their MCP client with OAuth through your identity provider. In that case, each user gets their own list of allowed MCP servers. See [Sign in MCP clients with OAuth](/governance/client-oauth).
+Each standard user has an allow-list of MCP servers. Through the CLI or the API, the user can only see and use the tools, prompts, and resources of the servers in that list. Admins can access every server.
+
+Users can also sign in from their MCP client with OAuth through your identity provider. The same allow-list applies there. See [Sign in MCP clients with OAuth](/governance/client-oauth).
 
 ## Create users
 
@@ -43,9 +45,22 @@ mcpjungle create user bob
 # Custom token
 mcpjungle create user alice --access-token alice_token_123
 
+# Allow access to two MCP servers
+mcpjungle create user carol --allow "github, notion"
+
 # From config file
 mcpjungle create user --conf /path/to/user-config.json
 ```
+
+A user created without `--allow` cannot access any MCP server. Users that existed before allow-lists were introduced keep access to all servers (`*`) until you change their list.
+
+## Change a user's allow-list
+
+```bash
+mcpjungle update user carol --allow "github"
+```
+
+The new list replaces the old one and applies to the user's next request. Pass `--allow ""` to remove access to all servers.
 
 ## User config file
 

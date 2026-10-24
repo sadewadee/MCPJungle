@@ -2,6 +2,7 @@
 package user
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -94,8 +95,8 @@ func (u *UserService) CreateUser(input *model.User) (*model.User, error) {
 	return &user, nil
 }
 
-// UpdateUser updates an existing user's information based on the provided input.
-// Currently it only supports updating the user's access token.
+// UpdateUser updates an existing user's access token, allow-list, or both, based on the provided input.
+// An empty access token or a nil allow-list in the input leaves that field unchanged.
 func (u *UserService) UpdateUser(input *model.User) (*model.User, error) {
 	var user model.User
 	err := u.db.Where("username = ?", input.Username).First(&user).Error
@@ -106,14 +107,30 @@ func (u *UserService) UpdateUser(input *model.User) (*model.User, error) {
 		return nil, fmt.Errorf("failed to find user: %w", err)
 	}
 
-	if input.AccessToken == "" {
-		return nil, fmt.Errorf("access token cannot be empty: %w", apierrors.ErrInvalidInput)
+	if input.AccessToken == "" && input.AllowList == nil {
+		return nil, fmt.Errorf("provide a new access token or allow-list to update: %w", apierrors.ErrInvalidInput)
 	}
-	// validate the user-provided custom access token
-	if err := internal.ValidateAccessToken(input.AccessToken); err != nil {
-		return nil, fmt.Errorf("invalid access token: %v: %w", err, apierrors.ErrInvalidInput)
+	if input.AccessToken != "" {
+		// validate the user-provided custom access token
+		if err := internal.ValidateAccessToken(input.AccessToken); err != nil {
+			return nil, fmt.Errorf("invalid access token: %v: %w", err, apierrors.ErrInvalidInput)
+		}
+		user.AccessToken = input.AccessToken
 	}
-	user.AccessToken = input.AccessToken
+	if input.AllowList != nil {
+		var servers []string
+		if err := json.Unmarshal(input.AllowList, &servers); err != nil {
+			return nil, fmt.Errorf("allow-list must be a list of MCP server names: %w", apierrors.ErrInvalidInput)
+		}
+		if servers == nil {
+			servers = []string{}
+		}
+		allowList, err := json.Marshal(servers)
+		if err != nil {
+			return nil, fmt.Errorf("failed to encode allow-list: %w", err)
+		}
+		user.AllowList = allowList
+	}
 
 	err = u.db.Save(&user).Error
 	if err != nil {

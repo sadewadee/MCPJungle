@@ -55,8 +55,9 @@ var createUserCmd = &cobra.Command{
 		"A user can make authenticated requests to the MCPJungle API server and perform limited actions like:\n" +
 		"- List and view MCP servers & tools\n" +
 		"- Check tool usage and invoke them\n\n" +
+		"Use --allow to choose the MCP servers this user can access. The user cannot see or use any other server,\n" +
+		"through the API or through an MCP client that signs in with OAuth.\n" +
 		"This operation generates a unique access token for the user to use when making requests.\n" +
-		"If MCP clients sign in with OAuth, use --allow to choose the MCP servers this user can access through the MCP proxy.\n" +
 		"It is mandatory to either specify the username or a config file.\n" +
 		"This command is only available in Enterprise mode.",
 	RunE: runCreateUser,
@@ -130,8 +131,8 @@ func init() {
 		&createUserCmdAllowedServers,
 		"allow",
 		"",
-		"Comma-separated list of MCP servers that this user can access through the MCP proxy after signing in with OAuth.\n"+
-			"By default, the list is empty, meaning the user cannot access any MCP servers this way.",
+		"Comma-separated list of MCP servers that this user can access.\n"+
+			"By default, the list is empty, meaning the user cannot access any MCP servers.",
 	)
 	createUserCmd.Flags().StringVarP(
 		&createUserCmdConfigFilePath,
@@ -284,7 +285,7 @@ func runCreateUser(cmd *cobra.Command, args []string) error {
 
 	cmd.Printf("User '%s' created successfully\n", user.Username)
 	if len(user.AllowList) > 0 {
-		cmd.Printf("Servers accessible after signing in with OAuth: %s\n", strings.Join(user.AllowList, ","))
+		cmd.Printf("Servers accessible: %s\n", strings.Join(user.AllowList, ","))
 	}
 	cmd.Println("The user should now run the following command to log into mcpjungle:")
 	cmd.Println()

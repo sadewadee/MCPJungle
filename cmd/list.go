@@ -300,6 +300,8 @@ func runListUsers(cmd *cobra.Command, args []string) error {
 			cmd.Printf("%d. %s\n", i+1, u.Username)
 			if len(u.AllowList) > 0 {
 				cmd.Printf("   Allowed servers: %s\n", strings.Join(u.AllowList, ","))
+			} else {
+				cmd.Println("   This user does not have access to any MCP servers.")
 			}
 		}
 

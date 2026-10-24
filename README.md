@@ -944,16 +944,22 @@ You can also use `${VAR_NAME}` placeholders elsewhere in the same JSON config fi
 In addition to MCP clients, you can also create User accounts in mcpjungle for human users.
 
 A user has a very limited set of privileges compared to an admin in the enterprise mode.
-For example, they can view and use MCP servers, but they don't have write permissions in mcpjungle.
+For example, they can view and use the MCP servers in their allow-list, but they don't have write permissions in mcpjungle.
 
 ```bash
 # Auto-generates a secret for user
 mcpjungle create user bob
 # Specify a custom access token for user
 mcpjungle create user alice --access-token alice_token_123
+# Allow the user to access two MCP servers
+mcpjungle create user carol --allow "github, notion"
+# Change the servers a user can access later
+mcpjungle update user carol --allow "github"
 # Create user from config file
 mcpjungle create user --conf /path/to/user-config.json
 ```
+
+A user created without `--allow` cannot access any MCP server. Users created before allow-lists were introduced keep access to all servers (`*`) until you change their list.
 
 The config file format for creating a user is similar to that of an MCP client:
 ```json

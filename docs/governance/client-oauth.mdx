@@ -79,11 +79,17 @@ In a config file, use `allowed_servers`:
 }
 ```
 
-A user created without `--allow` cannot access any MCP server through OAuth sign-in. `mcpjungle list users` shows each user's allowed servers.
+A user created without `--allow` cannot access any MCP server. `mcpjungle list users` shows each user's allowed servers.
 
-<Note>
-  You cannot change a user's allow-list after creating the user yet. Delete the user and create them again. Signing in with OAuth does not use the user's Mcpjungle access token, so this does not affect OAuth sign-in. If the person also uses the CLI, pass their existing token with `--access-token`.
-</Note>
+The same allow-list applies when the user calls the REST API or the CLI (for example `mcpjungle invoke`) with their Mcpjungle access token.
+
+To change a user's allow-list later, run:
+
+```bash
+mcpjungle update user alice@example.com --allow "github, notion"
+```
+
+The new list applies to the user's next request. Pass `--allow ""` to remove access to all servers.
 
 ## Connect an MCP client
 
@@ -93,7 +99,6 @@ Static MCP client tokens keep working alongside OAuth sign-in.
 
 ## Limitations
 
-- The allow-list applies to the MCP proxy endpoints: `/mcp`, `/sse`, and tool group endpoints. A user who calls the REST API or the CLI (for example `mcpjungle invoke`) with their Mcpjungle access token is not restricted by it.
 - Mcpjungle does not check whether a token was revoked. Keep access token lifetimes short in your identity provider.
 - One audience applies to all MCP endpoints, including tool group endpoints.
 

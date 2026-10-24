@@ -7,6 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/mcpjungle/mcpjungle/internal/model"
+	"github.com/mcpjungle/mcpjungle/internal/service/mcp"
 	"github.com/mcpjungle/mcpjungle/pkg/types"
 )
 
@@ -14,6 +15,9 @@ import (
 func (s *Server) listResourcesHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		server := c.Query("server")
+		if server != "" && !requireServerAccess(c, server) {
+			return
+		}
 		var (
 			resources []model.Resource
 			err       error
@@ -27,7 +31,10 @@ func (s *Server) listResourcesHandler() gin.HandlerFunc {
 			handleServiceError(c, err)
 			return
 		}
-		c.JSON(http.StatusOK, resources)
+		c.JSON(http.StatusOK, keepAccessible(c, resources, func(r model.Resource) string {
+			serverName, _ := mcp.ServerNameOfResource(r.URI)
+			return serverName
+		}))
 	}
 }
 
@@ -42,6 +49,9 @@ func (s *Server) getResourceHandler() gin.HandlerFunc {
 
 		if request.URI == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "missing 'uri' field in request body"})
+			return
+		}
+		if serverName, ok := mcp.ServerNameOfResource(request.URI); ok && !requireServerAccess(c, serverName) {
 			return
 		}
 
@@ -66,6 +76,9 @@ func (s *Server) readResourceHandler() gin.HandlerFunc {
 
 		if request.URI == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "missing 'uri' field in request body"})
+			return
+		}
+		if serverName, ok := mcp.ServerNameOfResource(request.URI); ok && !requireServerAccess(c, serverName) {
 			return
 		}
 

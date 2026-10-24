@@ -151,11 +151,11 @@ mcpjungle create user alice
 # Supply your own token
 mcpjungle create user alice --access-token alice-custom-token
 
-# Choose the MCP servers alice can access after signing in with OAuth
+# Choose the MCP servers alice can access
 mcpjungle create user alice --allow "github, notion"
 ```
 
-The `--allow` list (`allowed_servers` in a config file) only applies when MCP clients sign in with OAuth. See [Sign in MCP clients with OAuth](/governance/client-oauth).
+The `--allow` list (`allowed_servers` in a config file) limits the MCP servers the user can see and use, both through the CLI and API and through MCP clients that [sign in with OAuth](/governance/client-oauth). A user created without it cannot access any MCP server.
 
 Config file example:
 
@@ -175,6 +175,35 @@ When user creation succeeds, the CLI prints the `mcpjungle login <token>` comman
 </Note>
 
 For token supply options and placeholder handling, see [Config file reference](/reference/config-file).
+
+## `update user`
+
+Changes a user's access token, their allow-list, or both.
+
+```bash
+mcpjungle update user <username> [--access-token <token>] [--allow <servers>]
+```
+
+Examples:
+
+```bash
+# Rotate a custom token
+mcpjungle update user alice --access-token alice-new-token
+
+# Replace the MCP servers alice can access
+mcpjungle update user alice --allow "github, jira"
+
+# Remove alice's access to all MCP servers
+mcpjungle update user alice --allow ""
+```
+
+<ParamField body="--access-token" type="string">
+  New custom access token for the user.
+</ParamField>
+
+<ParamField body="--allow" type="string">
+  Comma-separated list of MCP server names. It replaces the user's current allow-list.
+</ParamField>
 
 ## `delete user`
 

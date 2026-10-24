@@ -84,6 +84,20 @@ func splitServerToolName(name string) (string, string, bool) {
 	return strings.Cut(name, serverToolNameSep)
 }
 
+// ServerNameOf returns the name of the MCP server in the canonical name of a tool or prompt,
+// eg- "git" for "git__commit". ok is false if the name has no server name prefix.
+func ServerNameOf(canonicalName string) (serverName string, ok bool) {
+	serverName, _, ok = splitServerToolName(canonicalName)
+	return serverName, ok
+}
+
+// ServerNameOfResource returns the name of the MCP server in a resource URI assigned by mcpjungle.
+// ok is false if the URI is not a valid mcpjungle resource URI.
+func ServerNameOfResource(uri string) (serverName string, ok bool) {
+	serverName, _, err := parseResourceURI(uri)
+	return serverName, err == nil
+}
+
 // mergeServerPromptNames combines the server name and prompt name into a single prompt name unique across the registry.
 func mergeServerPromptNames(s, p string) string {
 	return s + serverPromptNameSep + p

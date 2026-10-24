@@ -7,12 +7,16 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/mcpjungle/mcpjungle/internal/model"
+	"github.com/mcpjungle/mcpjungle/internal/service/mcp"
 )
 
 // listToolsHandler returns a list of all tools, or all tools for a given mcp server if "server" query param is provided
 func (s *Server) listToolsHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		server := c.Query("server")
+		if server != "" && !requireServerAccess(c, server) {
+			return
+		}
 		var (
 			tools []model.Tool
 			err   error
@@ -28,7 +32,10 @@ func (s *Server) listToolsHandler() gin.HandlerFunc {
 			handleServiceError(c, err)
 			return
 		}
-		c.JSON(http.StatusOK, tools)
+		c.JSON(http.StatusOK, keepAccessible(c, tools, func(t model.Tool) string {
+			serverName, _ := mcp.ServerNameOf(t.Name)
+			return serverName
+		}))
 	}
 }
 
@@ -55,6 +62,10 @@ func (s *Server) invokeToolHandler() gin.HandlerFunc {
 			return
 		}
 
+		if serverName, ok := mcp.ServerNameOf(name); ok && !requireServerAccess(c, serverName) {
+			return
+		}
+
 		// remove name from args since it was an input for the api, not for the tool
 		delete(args, "name")
 
@@ -76,6 +87,9 @@ func (s *Server) getToolHandler() gin.HandlerFunc {
 		name := c.Query("name")
 		if name == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "missing 'name' query parameter"})
+			return
+		}
+		if serverName, ok := mcp.ServerNameOf(name); ok && !requireServerAccess(c, serverName) {
 			return
 		}
 
