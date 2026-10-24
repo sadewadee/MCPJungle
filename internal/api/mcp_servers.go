@@ -175,6 +175,7 @@ func (s *Server) listServersHandler() gin.HandlerFunc {
 			handleServiceError(c, err)
 			return
 		}
+		records = keepAccessible(c, records, func(r model.McpServer) string { return r.Name })
 
 		servers := make([]*types.McpServer, len(records))
 

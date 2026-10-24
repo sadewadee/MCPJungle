@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/mcpjungle/mcpjungle/pkg/types"
 	"github.com/mcpjungle/mcpjungle/pkg/util"
@@ -43,10 +44,12 @@ var updateMcpClientCmd = &cobra.Command{
 
 var updateUserCmd = &cobra.Command{
 	Use:   "user [name]",
+	Args:  cobra.ExactArgs(1),
 	Short: "Update a user",
-	Long: "Update an existing user\n" +
-		"Currently, this command only supports updating the access token of the user.\n" +
-		"This is useful when you use custom tokens and you want to rotate the access token of a user.",
+	Long: "Update an existing user's access token, the MCP servers they can access, or both.\n\n" +
+		"Use --access-token to rotate the access token of a user who uses a custom token.\n" +
+		"Use --allow to replace the list of MCP servers the user can access through the API and the MCP proxy.\n" +
+		"Pass --allow \"\" to remove the user's access to all MCP servers.",
 	RunE: runUpdateUser,
 }
 
@@ -55,7 +58,8 @@ var (
 
 	updateMcpClientAccessToken string
 
-	updateUserAccessToken string
+	updateUserAccessToken    string
+	updateUserAllowedServers string
 )
 
 func init() {
@@ -82,7 +86,13 @@ func init() {
 		"",
 		"New access token for the user",
 	)
-	_ = updateUserCmd.MarkFlagRequired("access-token")
+	updateUserCmd.Flags().StringVar(
+		&updateUserAllowedServers,
+		"allow",
+		"",
+		"Comma-separated list of MCP servers the user can access, replacing the current list (eg- \"github, notion\")",
+	)
+	updateUserCmd.MarkFlagsOneRequired("access-token", "allow")
 
 	updateCmd.AddCommand(updateToolGroupCmd)
 	updateCmd.AddCommand(updateMcpClientCmd)
@@ -193,14 +203,27 @@ func runUpdateMcpClient(cmd *cobra.Command, args []string) error {
 }
 
 func runUpdateUser(cmd *cobra.Command, args []string) error {
-	user := &types.CreateOrUpdateUserRequest{
+	user := &types.UpdateUserRequest{
 		Username:    args[0],
 		AccessToken: updateUserAccessToken,
+	}
+	if cmd.Flags().Changed("allow") {
+		allowList := parseAllowList(updateUserAllowedServers, cmd)
+		user.AllowList = &allowList
 	}
 	_, err := apiClient.UpdateUser(user)
 	if err != nil {
 		return fmt.Errorf("failed to update user %s: %w", user.Username, err)
 	}
-	cmd.Printf("User %s access token updated successfully.\n", user.Username)
+	if user.AccessToken != "" {
+		cmd.Printf("User %s access token updated successfully.\n", user.Username)
+	}
+	if user.AllowList != nil {
+		if len(*user.AllowList) > 0 {
+			cmd.Printf("User %s can now access: %s\n", user.Username, strings.Join(*user.AllowList, ","))
+		} else {
+			cmd.Printf("User %s can no longer access any MCP servers.\n", user.Username)
+		}
+	}
 	return nil
 }

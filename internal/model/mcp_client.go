@@ -26,18 +26,23 @@ type McpClient struct {
 // CheckHasServerAccess returns true if this client has access to the specified MCP server.
 // If not, it returns false.
 func (c *McpClient) CheckHasServerAccess(serverName string) bool {
-	if c.AllowList == nil {
-		return false
-	}
+	return allowListAccess(c.AllowList)(serverName)
+}
+
+// allowListAccess returns a function that reports whether a JSON allow-list of MCP server names
+// permits the given server. A wildcard entry permits all servers.
+// A missing or invalid allow-list permits no servers.
+func allowListAccess(allowList datatypes.JSON) func(serverName string) bool {
 	var allowedServers []string
-	if err := json.Unmarshal(c.AllowList, &allowedServers); err != nil {
-		return false
+	if allowList == nil || json.Unmarshal(allowList, &allowedServers) != nil {
+		return func(string) bool { return false }
 	}
-	for _, allowed := range allowedServers {
-		// If the client's allow list contains wildcard, then it is allowed to access all mcp servers
-		if allowed == types.AllowAllMcpServers || allowed == serverName {
-			return true
+	allowed := make(map[string]bool, len(allowedServers))
+	for _, name := range allowedServers {
+		if name == types.AllowAllMcpServers {
+			return func(string) bool { return true }
 		}
+		allowed[name] = true
 	}
-	return false
+	return func(serverName string) bool { return allowed[serverName] }
 }

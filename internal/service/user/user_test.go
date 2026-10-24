@@ -316,3 +316,40 @@ func TestUpdateUserNoAccessToken(t *testing.T) {
 		t.Error("Expected update to fail for non-existent user")
 	}
 }
+
+func TestUpdateUserAllowList(t *testing.T) {
+	setup, _ := testhelpers.SetupUserTest(t)
+	defer setup.Cleanup()
+	svc := NewUserService(setup.DB)
+	created, err := svc.CreateUser(&model.User{Username: "alice", AllowList: []byte(`["github"]`)})
+	testhelpers.AssertNoError(t, err)
+
+	// changing only the allow-list keeps the access token
+	updated, err := svc.UpdateUser(&model.User{Username: "alice", AllowList: []byte(`["github","notion"]`)})
+	testhelpers.AssertNoError(t, err)
+	testhelpers.AssertEqual(t, `["github","notion"]`, string(updated.AllowList))
+	testhelpers.AssertEqual(t, created.AccessToken, updated.AccessToken)
+
+	stored, err := svc.GetUserByUsername("alice")
+	testhelpers.AssertNoError(t, err)
+	testhelpers.AssertEqual(t, `["github","notion"]`, string(stored.AllowList))
+
+	// an empty or null allow-list removes access to all servers
+	for _, revoke := range []string{`[]`, `null`} {
+		updated, err = svc.UpdateUser(&model.User{Username: "alice", AllowList: []byte(revoke)})
+		testhelpers.AssertNoError(t, err)
+		testhelpers.AssertEqual(t, `[]`, string(updated.AllowList))
+	}
+}
+
+func TestUpdateUserInvalidAllowList(t *testing.T) {
+	setup, _ := testhelpers.SetupUserTest(t)
+	defer setup.Cleanup()
+	svc := NewUserService(setup.DB)
+	_, err := svc.CreateUser(&model.User{Username: "alice"})
+	testhelpers.AssertNoError(t, err)
+
+	_, err = svc.UpdateUser(&model.User{Username: "alice", AllowList: []byte(`{"github":true}`)})
+	testhelpers.AssertError(t, err)
+	testhelpers.AssertTrue(t, errors.Is(err, apierrors.ErrInvalidInput), "expected ErrInvalidInput")
+}

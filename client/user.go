@@ -63,7 +63,7 @@ func (c *Client) DeleteUser(username string) error {
 	return nil
 }
 
-func (c *Client) UpdateUser(user *types.CreateOrUpdateUserRequest) (*types.CreateOrUpdateUserResponse, error) {
+func (c *Client) UpdateUser(user *types.UpdateUserRequest) (*types.CreateOrUpdateUserResponse, error) {
 	u, _ := c.constructAPIEndpoint("/users/" + user.Username)
 
 	body, err := json.Marshal(user)

@@ -7,12 +7,16 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/mcpjungle/mcpjungle/internal/model"
+	"github.com/mcpjungle/mcpjungle/internal/service/mcp"
 	"github.com/mcpjungle/mcpjungle/pkg/types"
 )
 
 func (s *Server) listPromptsHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		server := c.Query("server")
+		if server != "" && !requireServerAccess(c, server) {
+			return
+		}
 		var (
 			prompts []model.Prompt
 			err     error
@@ -28,7 +32,10 @@ func (s *Server) listPromptsHandler() gin.HandlerFunc {
 			handleServiceError(c, err)
 			return
 		}
-		c.JSON(http.StatusOK, prompts)
+		c.JSON(http.StatusOK, keepAccessible(c, prompts, func(p model.Prompt) string {
+			serverName, _ := mcp.ServerNameOf(p.Name)
+			return serverName
+		}))
 	}
 }
 
@@ -40,6 +47,9 @@ func (s *Server) getPromptHandler() gin.HandlerFunc {
 		name := c.Query("name")
 		if name == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "missing 'name' query parameter"})
+			return
+		}
+		if serverName, ok := mcp.ServerNameOf(name); ok && !requireServerAccess(c, serverName) {
 			return
 		}
 		prompt, err := s.mcpService.GetPrompt(name)
@@ -66,6 +76,9 @@ func (s *Server) getPromptWithArgsHandler() gin.HandlerFunc {
 
 		if request.Name == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "missing 'name' field in request body"})
+			return
+		}
+		if serverName, ok := mcp.ServerNameOf(request.Name); ok && !requireServerAccess(c, serverName) {
 			return
 		}
 

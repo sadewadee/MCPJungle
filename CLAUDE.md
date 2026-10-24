@@ -107,7 +107,8 @@ The mode is persisted in the DB (`ServerConfig`). `start` refuses to run in a di
   - `init-server` creates the admin user;
   - `/api/v0` needs a user bearer token, and admin routes need the admin role;
   - the MCP proxy needs an *MCP client* token, and `ProxyToolFilter` (list) plus `authorizeProxyServerAccess` (call) limit a client to its allowed servers;
-  - when `MCPJUNGLE_OAUTH_ISSUER` and `MCPJUNGLE_PUBLIC_URL` are set, the MCP proxy also accepts users' OAuth access tokens (JWTs from an external IdP, verified by `internal/clientoauth`). `checkAuthForMcpProxyAccess` tries the static client token first, then maps the token's username claim to a user and builds a synthetic `McpClient` from the user's `allow_list` (admins get `*`), so the same filters apply. The user allow-list does not restrict `/api/v0`;
+  - when `MCPJUNGLE_OAUTH_ISSUER` and `MCPJUNGLE_PUBLIC_URL` are set, the MCP proxy also accepts users' OAuth access tokens (JWTs from an external IdP, verified by `internal/clientoauth`). `checkAuthForMcpProxyAccess` tries the static client token first, then maps the token's username claim to a user and builds a synthetic `McpClient` from the user's `allow_list` (admins get `*`), so the same filters apply;
+  - a standard user's `/api/v0` calls are limited to the same allow-list: handlers call `requireServerAccess` (403) for a named server/tool/prompt/resource and `keepAccessible` to filter lists (`internal/api/user_access.go`). `migrations.Migrate` gives standard users that predate allow-lists (`allow_list IS NULL`) `["*"]`;
   - users and MCP clients endpoints are enterprise-only;
   - dashboard routes return 404;
   - OTEL on by default (`OTEL_ENABLED` overrides).
